@@ -90,7 +90,7 @@ x-airflow-common:
     - /var/run/docker.sock:/var/run/docker.sock  # Add this line to mount the docker socket
   user: "${AIRFLOW_UID:-50000}:0"
   networks:
-    decase:
+    my-net:
   depends_on:
     &airflow-common-depends-on
     redis:
@@ -115,7 +115,7 @@ services:
       retries: 5
       start_period: 5s
     networks:
-      decase:
+      my-net:
     restart: always
   # Minio Storage Server
   minio:
@@ -128,7 +128,7 @@ services:
       - MINIO_REGION_NAME=us-east-1
       - MINIO_REGION=us-east-1
     networks:
-      decase:
+      my-net:
     ports:
       - 9001:9001
       - 9000:9000
@@ -146,7 +146,7 @@ services:
       retries: 50
       start_period: 30s
     networks:
-      decase:
+      my-net:
     restart: always
 
 
@@ -321,7 +321,7 @@ services:
         condition: service_completed_successfully
 
 networks:
-  decase:
+  my-net:
     driver: bridge
     external: true
 volumes:
