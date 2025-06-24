@@ -15,8 +15,7 @@ MINIO_ENDPOINT = 'minio:9000' # Variable.get("MINIO_ENDPOINT")
 MINIO_ACCESS_KEY = 'admin' # Variable.get("minio_access_key")
 MINIO_SECRET_KEY = 'password' # Variable.get("minio_secret_key")
 MINIO_DATALAKE_WAREHOUSE = 's3a://datalake-gold/warehouse' # Variable.get("MINIO_DATALAKE_WAREHOUSE")
-NESSIE_URI = 'http://nessie:19120/api/v1' # Variable.get("NESSIE_URI")
-NESSIE_SILVER_TABLE_NAME = 'tab_brewery' # Variable.get("NESSIE_SILVER_TABLE_NAME")
+TABLE_NAME = 'tab_brewery' # Variable.get("NESSIE_SILVER_TABLE_NAME")
 
 HOST_SPARK_DIR = f"{os.getenv('CURRENT_DIR', '/default/path/if/not/set')}/spark"
 
@@ -176,12 +175,6 @@ with DAG(
         /opt/bitnami/spark/bin/spark-submit \
             --master local[*] \
             --deploy-mode client \
-            --conf spark.sql.catalog.nessie=org.apache.iceberg.spark.SparkCatalog \
-            --conf spark.sql.catalog.nessie.catalog-impl=org.apache.iceberg.nessie.NessieCatalog \
-            --conf spark.sql.catalog.nessie.warehouse={{ params.minio_datalake_warehouse }} \
-            --conf spark.sql.catalog.nessie.uri={{ params.nessie_uri }} \
-            --conf spark.sql.catalog.nessie.ref=main \
-            --conf spark.sql.catalog.nessie.auth-type=NONE \
             --conf spark.hadoop.fs.s3a.endpoint=http://{{ params.minio_endpoint }} \
             --conf spark.hadoop.fs.s3a.access.key={{ params.minio_access_key }} \
             --conf spark.hadoop.fs.s3a.secret.key={{ params.minio_secret_key }} \
@@ -215,9 +208,8 @@ with DAG(
             'minio_access_key': MINIO_ACCESS_KEY,
             'minio_secret_key': MINIO_SECRET_KEY,
             'minio_datalake_warehouse': MINIO_DATALAKE_WAREHOUSE,
-            'nessie_uri': NESSIE_URI,
             'minio_silver_bucket_name': MINIO_SILVER_BUCKET_NAME,
-            'table_name': NESSIE_SILVER_TABLE_NAME,
+            'table_name': TABLE_NAME,
         },
     )
 
