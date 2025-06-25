@@ -5,98 +5,51 @@ import logging
 import datetime
 import json
 import decase.utils as DE
+from pyspark.sql.types import StructType, StructField, StringType, FloatType, LongType
 
-
-def check_database_table_exists(spark_session: SparkSession, str_store_bucket_name: str, str_silver_table_name: str):
+def remove_extra_columns(df, describe_list):
     """
-    Check if the table exists in the database and create it if it does not exist.
-    Parameters:
-    - spark_session (SparkSession): The Spark session.
-    - str_store_bucket_name (str): The name of the store bucket.
-    - str_silver_table_name (str): The name of the silver table.
+    Remove do DataFrame as colunas que não estão presentes no describe_list.
+    Parâmetros:
+    - df: DataFrame do PySpark.
+    - describe_list: Lista de dicionários com as colunas válidas.
+    Retorna:
+    - DataFrame apenas com as colunas do describe_list.
     """
-    
-    spark_session.sql(f'CREATE NAMESPACE IF NOT EXISTS nessie.silver')
+    valid_cols = [col['col_name'] for col in describe_list]
+    cols_to_keep = [col for col in df.columns if col in valid_cols]
+    return df.select(*cols_to_keep)
 
-    spark_session.sql(f'DROP TABLE IF EXISTS nessie.silver.{str_silver_table_name}')
-    spark_session.sql(
-        f'CREATE TABLE IF NOT EXISTS nessie.silver.{str_silver_table_name} (' + """
-            id STRING COMMENT '{"order_sort": 0, "description": "Unique identifier for the brewery."}',
-            name STRING COMMENT '{"order_sort": 1, "description": "Name of the brewery."}',
-            brewery_type STRING COMMENT '{"order_sort": 2, "description": "Type of brewery.", "partition": {"enabled": true, "order_sort": 0}}',
-            address_1 STRING COMMENT '{"order_sort": 3, "description": "First line of the brewery address."}',
-            address_2 STRING COMMENT '{"order_sort": 4, "description": "Second line of the brewery address."}',
-            address_3 STRING COMMENT '{"order_sort": 5, "description": "Third line of the brewery address."}',
-            city STRING COMMENT '{"order_sort": 6, "description": "City where the brewery is located.", "partition": {"enabled": true, "order_sort": 3}}',
-            state_province STRING COMMENT '{"order_sort": 7, "description": "State or province where the brewery is located.", "partition": {"enabled": true, "order_sort": 2}}',
-            postal_code STRING COMMENT '{"order_sort": 8, "description": "Postal code of the brewery."}',
-            country STRING COMMENT '{"order_sort": 9, "description": "Country where the brewery is located.", "partition": {"enabled": true, "order_sort": 1}}',
-            longitude FLOAT COMMENT '{"order_sort": 10, "description": "Longitude of the brewery location."}',
-            latitude FLOAT COMMENT '{"order_sort": 11, "description": "Latitude of the brewery location."}',
-            phone BIGINT COMMENT '{"order_sort": 12, "description": "Phone number of the brewery."}',
-            website_url STRING COMMENT '{"order_sort": 13, "description": "URL of the brewery website."}',
-            state STRING COMMENT '{"order_sort": 14, "description": "State of the brewery."}',
-            street STRING COMMENT '{"order_sort": 15, "description": "Street of the brewery."}'
-        )
-        USING iceberg
-        PARTITIONED BY (
-            brewery_type,
-            country,
-            state_province,
-            city
-        )
-    """ + f" LOCATION 's3a://{str_store_bucket_name}/warehouse/silver/{str_silver_table_name}/' ")
-
-def get_columns_partitioned_by_schema(list_schema: list) -> list:
+def sort_columns_by_order(df, describe_list):
     """
-    Get the columns that are partitioned according to the schema.
-    Parameters:
-    - list_schema (list): List of dictionaries with the schema of the table.
-    Returns:
-    - list: List of columns that are partitioned.
+    Ordena as colunas do DataFrame conforme o campo 'order' do describe_list.
+    Parâmetros:
+    - df: DataFrame do PySpark.
+    - describe_list: Lista de dicionários com o campo 'order'.
+    Retorna:
+    - DataFrame com as colunas ordenadas.
     """
+    ordered_cols = [col['col_name'] for col in sorted(describe_list, key=lambda x: x['order'])]
+    return df.select(*ordered_cols)
 
-    lst_return = []
-    for dcol in list_schema:
-        if dcol['comment'].get('partition',{}).get('enabled', False):
-            lst_return.append(dcol)
-
-    lst_return.sort(key=lambda x: x['comment']['partition']['order_sort'])
-    return [col['col_name'] for col in lst_return]
-
-
-def adjust_columns_partition(df: DataFrame, lst_partition: list) -> DataFrame:
-    """	
-    Adjusts the columns partitioned by schema.
-    Parameters:
-    - df (DataFrame): The input Spark DataFrame.
-    - lst_partition (list): List of columns that are partitioned.
-    Returns:
-    - DataFrame: The transformed DataFrame with the partitioned columns adjusted.
-    """
-
-    for col in lst_partition:
-        df = df.withColumn(col, F.upper(F.regexp_replace(F.trim(F.col(col)), r'\s+', '_')))
-    return df
-
-def convert_comment_from_json(list_schema: list) -> list:
-    """	
-    Converts the comment field from JSON to dictionary.
-    Parameters:
-    - list_schema (list): List of dictionaries with the schema of the table.
-    Returns:
-    - list: List of dictionaries with the schema of the table with the comment field converted to dictionary.
-    """
-
-    for dcol in list_schema:
-        if 'comment' in dcol and DE.is_valid_json(dcol['comment']):
-            dcol['comment'] = json.loads(dcol['comment'])
-        else:
-            dcol['comment'] = {
-                'partition': {},
-                'order_sort': 0,
-            }
-    return list_schema
+describe_list = [
+    {'col_name': 'id', 'data_type': 'string', 'order': 1},
+    {'col_name': 'name', 'data_type': 'string', 'order': 2},
+    {'col_name': 'brewery_type', 'data_type': 'string', 'order': 3},
+    {'col_name': 'address_1', 'data_type': 'string', 'order': 4},
+    {'col_name': 'address_2', 'data_type': 'string', 'order': 5},
+    {'col_name': 'address_3', 'data_type': 'string', 'order': 6},
+    {'col_name': 'city', 'data_type': 'string', 'order': 7},
+    {'col_name': 'state_province', 'data_type': 'string', 'order': 8},
+    {'col_name': 'postal_code', 'data_type': 'string', 'order': 9},
+    {'col_name': 'country', 'data_type': 'string', 'order': 10},
+    {'col_name': 'longitude', 'data_type': 'float', 'order': 11},
+    {'col_name': 'latitude', 'data_type': 'float', 'order': 12},
+    {'col_name': 'phone', 'data_type': 'bigint', 'order': 13},
+    {'col_name': 'website_url', 'data_type': 'string', 'order': 14},
+    {'col_name': 'state', 'data_type': 'string', 'order': 15},
+    {'col_name': 'street', 'data_type': 'string', 'order': 16},
+]
 
 def remove_additional_columns(list_schema: list) -> list:
     """
@@ -113,7 +66,18 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
     logger.info('Running job_silver_app...')
-    spark_session = DE.get_spark_session('job_silver_app')
+
+
+    spark_session = (
+    SparkSession.builder
+    .appName("job_silver_app")
+    .config("spark.sql.catalog.spark_catalog", "org.apache.iceberg.spark.SparkSessionCatalog")
+    .config("spark.sql.catalog.spark_catalog.type", "hive")
+    .config("spark.sql.catalog.local", "org.apache.iceberg.spark.SparkCatalog")
+    .config("spark.sql.catalog.local.type", "hadoop")
+    .getOrCreate()
+    )
+
     str_datetime_ref = spark_session.conf.get("spark.job_silver_app.datetime_ref", '1900-01-01 00:00:00')
     str_bucket_name = spark_session.conf.get("spark.job_silver_app.bucket_name", 'undefined')
     str_dataset_name = spark_session.conf.get("spark.job_silver_app.dataset_name", 'undefined')
@@ -123,6 +87,9 @@ if __name__ == "__main__":
     datetime_ref = datetime.datetime.strptime(str_datetime_ref, '%Y-%m-%d_%H:%M:%S')
     str_prefix_bucket = f"s3a://{str_bucket_name}/{str_dataset_name}/sys_file_date={datetime_ref.strftime('%Y-%m-%d')}/"
     logger.info(f'Str prefix bucket: {str_prefix_bucket}')
+
+    # Setting spark config spark.sql.catalog.local.warehouse
+    spark_session.conf.set("spark.sql.catalog.local.warehouse", f"s3a://{str_store_bucket_name}/warehouse")
 
     lst_prefix_bucket = str_prefix_bucket.split('/')
     str_bucket_name = lst_prefix_bucket[2]
@@ -146,37 +113,26 @@ if __name__ == "__main__":
         int_qtd_lines = df.count()
         logger.info(f"Number of lines: {int_qtd_lines}")
         if int_qtd_lines > 0:
+            logger.info("Processing data...")
 
-            check_database_table_exists(spark_session, str_store_bucket_name, str_silver_table_name)
+            spark_session.sql("CREATE SCHEMA IF NOT EXISTS silver")
 
-            describe_result = spark_session.sql("DESCRIBE TABLE nessie.silver.tab_brewery").distinct().collect()
-            describe_list = [row.asDict() for row in describe_result]
-            describe_list = remove_additional_columns(describe_list)
-            describe_list = convert_comment_from_json(describe_list)
-          
-            # Log the result
-            logger.info(f"Result schema columns: {describe_list}")
-
+            logger.info('Removing extra columns...')
+            df = remove_extra_columns(df, describe_list)
+            logger.info('Casting columns types by schema...')
             df = DE.cast_columns_types_by_schema(df, describe_list, logger)
+            logger.info('Sorting columns by order...')
+            df = sort_columns_by_order(df, describe_list)
 
-            lst_partition = get_columns_partitioned_by_schema(describe_list)
-            logger.info(f"Sort column name partition: {lst_partition}")
+            
 
-            # For columns partition TRIM, UPPER AND REPLACE SPACES BETWEEN WORDS
-            df = adjust_columns_partition(df, lst_partition)
-
-            describe_list.sort(key=lambda x: x['comment']['order_sort'])
-            lst_sorted_columns = [col['col_name'] for col in describe_list]
-            logger.info(f"Sorted columns: {lst_sorted_columns}")
-            df = df.select(*lst_sorted_columns)
-
-            # Mode write without delta table
-            #str_output_path = f"s3a://{str_store_bucket_name}/warehouse/dbw/tab_brewery/"
-            #logger.info(f"Output path: {str_output_path}")
-            #df.write.partitionBy(*lst_partition).mode("overwrite").parquet(str_output_path)
-            #logger.info(f"Data written to {str_output_path} by partitions {lst_partition}.")
-
-            df.write.mode("overwrite").saveAsTable(f"nessie.silver.{str_silver_table_name}")
+            logger.info('Storing dataframe as iceberg table...')
+            df.write.format("iceberg") \
+                .mode("overwrite") \
+                .option("write.metadata.delete-after-commit.enabled", "true") \
+                .option("write.metadata.previous-versions-max", "10") \
+                .saveAsTable(f"local.silver.tab_brewery")
+                
 
         else:
             logger.info("No data to process.")
