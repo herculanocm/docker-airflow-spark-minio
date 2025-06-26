@@ -62,6 +62,33 @@ def remove_additional_columns(list_schema: list) -> list:
 
     return [dcol for dcol in list_schema if '#' not in dcol['col_name']]
 
+def ensure_schema_table_exists(spark_session):
+    spark_session.sql("CREATE SCHEMA IF NOT EXISTS silver")
+
+    spark_session.sql("""
+    CREATE TABLE IF NOT EXISTS local.silver.tab_brewery (
+        id STRING,
+        name STRING,
+        brewery_type STRING,
+        address_1 STRING,
+        address_2 STRING,
+        address_3 STRING,
+        city STRING,
+        state_province STRING,
+        postal_code STRING,
+        country STRING,
+        longitude FLOAT,
+        latitude FLOAT,
+        phone BIGINT,
+        website_url STRING,
+        state STRING,
+        street STRING,
+        sys_file_date DATE
+    )
+    USING ICEBERG
+    PARTITIONED BY (sys_file_date)
+    """)
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
@@ -115,17 +142,20 @@ if __name__ == "__main__":
         if int_qtd_lines > 0:
             logger.info("Processing data...")
 
-            spark_session.sql("CREATE SCHEMA IF NOT EXISTS silver")
-
             logger.info('Removing extra columns...')
             df = remove_extra_columns(df, describe_list)
             logger.info('Casting columns types by schema...')
             df = DE.cast_columns_types_by_schema(df, describe_list, logger)
             logger.info('Sorting columns by order...')
             df = sort_columns_by_order(df, describe_list)
+            logger.info('Adding sys_file_date column...')
+            df = df.withColumn("sys_file_date", F.lit(datetime_ref.strftime('%Y-%m-%d')))
+            # Converting sys_file_date to date type
+            df = df.withColumn("sys_file_date", F.to_date(F.col("sys_file_date"), "yyyy-MM-dd"))
 
+            logger.info('Ensuring schema table exists...')
+            ensure_schema_table_exists(spark_session)
             
-
             logger.info('Storing dataframe as iceberg table...')
             df.write.format("iceberg") \
                 .mode("overwrite") \
