@@ -9,6 +9,7 @@ from typing import Any
 import os
 
 MINIO_GOLDEN_BUCKET_NAME = 'datalake-gold' # Variable.get("MINIO_GOLDEN_BUCKET_NAME")
+MINIO_SILVER_BUCKET_NAME = 'datalake-silver'
 MINIO_ENDPOINT = 'minio:9000' # Variable.get("MINIO_ENDPOINT")
 MINIO_ACCESS_KEY = 'admin' # Variable.get("minio_access_key")
 MINIO_SECRET_KEY = 'password' # Variable.get("minio_secret_key")
@@ -193,6 +194,7 @@ with DAG(
             --conf spark.job_gold_app.datetime_ref={{ get_datetime_UTC_SaoPaulo(execution_date) }} \
             --conf spark.job_gold_app.store_bucket_name={{ params.minio_golden_bucket_name }} \
             --conf spark.job_gold_app.golden_table_name={{ params.table_name_summary }} \
+            --conf spark.job_gold_app.minio_silver_bucket_name={{ params.minio_silver_bucket_name }} \
             /app/data/jobs/job_gold.py"
         """,
         docker_url='unix://var/run/docker.sock',
@@ -217,6 +219,7 @@ with DAG(
             'table_name': NESSIE_SILVER_TABLE_NAME,
             'table_name_summary': NESSIE_GOLDEN_TABLE_NAME,
             'minio_golden_bucket_name': MINIO_GOLDEN_BUCKET_NAME,
+            'minio_silver_bucket_name': MINIO_SILVER_BUCKET_NAME,
         },
     )
 

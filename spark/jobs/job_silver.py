@@ -63,10 +63,10 @@ def remove_additional_columns(list_schema: list) -> list:
     return [dcol for dcol in list_schema if '#' not in dcol['col_name']]
 
 def ensure_schema_table_exists(spark_session):
-    spark_session.sql("CREATE SCHEMA IF NOT EXISTS silver")
+    spark_session.sql("CREATE SCHEMA IF NOT EXISTS dw")
 
     spark_session.sql("""
-    CREATE TABLE IF NOT EXISTS local.silver.tab_brewery (
+    CREATE TABLE IF NOT EXISTS silver.dw.tab_brewery (
         id STRING,
         name STRING,
         brewery_type STRING,
@@ -100,8 +100,8 @@ if __name__ == "__main__":
     .appName("job_silver_app")
     .config("spark.sql.catalog.spark_catalog", "org.apache.iceberg.spark.SparkSessionCatalog")
     .config("spark.sql.catalog.spark_catalog.type", "hive")
-    .config("spark.sql.catalog.local", "org.apache.iceberg.spark.SparkCatalog")
-    .config("spark.sql.catalog.local.type", "hadoop")
+    .config("spark.sql.catalog.silver", "org.apache.iceberg.spark.SparkCatalog")
+    .config("spark.sql.catalog.silver.type", "hadoop")
     .getOrCreate()
     )
 
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     logger.info(f'Str prefix bucket: {str_prefix_bucket}')
 
     # Setting spark config spark.sql.catalog.local.warehouse
-    spark_session.conf.set("spark.sql.catalog.local.warehouse", f"s3a://{str_store_bucket_name}/warehouse")
+    spark_session.conf.set("spark.sql.catalog.silver.warehouse", f"s3a://{str_store_bucket_name}/warehouse")
 
     lst_prefix_bucket = str_prefix_bucket.split('/')
     str_bucket_name = lst_prefix_bucket[2]
@@ -161,7 +161,7 @@ if __name__ == "__main__":
                 .mode("overwrite") \
                 .option("write.metadata.delete-after-commit.enabled", "true") \
                 .option("write.metadata.previous-versions-max", "10") \
-                .saveAsTable(f"local.silver.tab_brewery")
+                .saveAsTable(f"silver.dw.tab_brewery")
                 
 
         else:
