@@ -78,6 +78,41 @@ def is_valid_json(value: str) -> bool:
     except (ValueError, TypeError):
         return False
     
+def get_qtd_and_size_minio(endpoint_url: str, access_key: str, secret_key: str, bucket_name: str, prefix: str, logger: logging.Logger = None) -> dict:
+    return_obj = {
+        'total_bytes': 0,
+        'total_objects': 0
+    }
+    try:
+
+        # Initialize S3 client with MinIO configurations
+        s3 = boto3.client(
+            's3',
+            endpoint_url=endpoint_url,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=boto3.session.Config(signature_version='s3v4'),
+            verify=False  # Set to True if SSL is enabled
+        )
+
+        # List objects under the specified prefix
+        response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+
+        if 'Contents' in response:
+            for obj in response['Contents']:
+                return_obj['total_objects'] += 1
+                return_obj['total_bytes'] += obj.get('Size', 0)
+        else:
+            if logger:
+                logger.info(f"No objects found under prefix '{prefix}' in bucket '{bucket_name}'.")
+    
+    except Exception as e:
+        if logger:
+            logger.error(f"Unexpected error while calculating total bytes: {e}")
+
+
+    return return_obj
+    
 def check_minio_prefix_exists(endpoint_url: str, access_key: str, secret_key: str, bucket_name: str, prefix: str, logger: logging.Logger = None) -> bool:
     """
     Checks if a given prefix exists in a MinIO bucket by verifying the presence of objects under the prefix.

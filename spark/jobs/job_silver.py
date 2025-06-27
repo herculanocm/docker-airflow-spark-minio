@@ -1,11 +1,9 @@
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
-from pyspark.sql import DataFrame
 import logging
 import datetime
-import json
 import decase.utils as DE
-from pyspark.sql.types import StructType, StructField, StringType, FloatType, LongType
+import time
 
 def remove_extra_columns(df, describe_list):
     """
@@ -130,17 +128,33 @@ if __name__ == "__main__":
 
     if DE.check_minio_prefix_exists(minio_endpoint, minio_access_key, minio_secret_key, str_bucket_name, str_prefix_path, logger):
         logger.info(f"Path {str_prefix_bucket} exists.")
+
+        return_obj = DE.get_qtd_and_size_minio(
+            minio_endpoint,
+            minio_access_key,
+            minio_secret_key,
+            str_bucket_name,
+            str_prefix_path,
+            logger
+        )
+        logger.info(f"Total objects: {return_obj['total_objects']}, Total bytes: {return_obj['total_bytes']}")
+
+        start_time = time.time()
         df = (
             spark_session.read
                 .option('inferSchema', 'true')
                 .json(str_prefix_bucket)
         )
+        elapsed_time = time.time() - start_time
+        logger.info(f"Tempo para leitura dos arquivos: {elapsed_time:.2f} segundos - Total de linhas: {df.count()}")
         df.printSchema()
 
         int_qtd_lines = df.count()
         logger.info(f"Number of lines: {int_qtd_lines}")
         if int_qtd_lines > 0:
             logger.info("Processing data...")
+
+            start_time = time.time()
 
             logger.info('Removing extra columns...')
             df = remove_extra_columns(df, describe_list)
@@ -163,6 +177,8 @@ if __name__ == "__main__":
                 .option("write.metadata.previous-versions-max", "10") \
                 .saveAsTable(f"silver.dw.tab_brewery")
                 
+            elapsed_time = time.time() - start_time
+            logger.info(f"Tempo para tratamento e gravação na silver: {elapsed_time:.2f} segundos")
 
         else:
             logger.info("No data to process.")
