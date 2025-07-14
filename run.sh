@@ -41,7 +41,7 @@ else
     echo "Docker network $NETWORK_NAME already exists."
 fi
 
-
+# build custom airflow and spark images
 docker build -t herculanocm/airflow:2.10.3 ./airflow/
 
 docker build -t herculanocm/spark:3.4.1 ./spark/

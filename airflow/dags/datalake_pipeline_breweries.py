@@ -6,6 +6,49 @@ from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 from airflow.utils.trigger_rule import TriggerRule
 from typing import Any
+import boto3
+import logging
+
+MINIO_LAND_BUCKET_NAME = 'datalake-bronze' # Variable.get("MINIO_LAND_BUCKET_NAME")
+MINIO_SILVER_BUCKET_NAME = 'datalake-silver' # Variable.get("MINIO_SILVER_BUCKET_NAME")
+MINIO_ENDPOINT = 'http://minio:9000' # Variable.get("MINIO_ENDPOINT")
+MINIO_ACCESS_KEY = 'admin' # Variable.get("minio_access_key")
+MINIO_SECRET_KEY = 'password' # Variable.get("minio_secret_key")
+
+
+def get_qtd_and_size_minio(endpoint_url: str, access_key: str, secret_key: str, bucket_name: str, prefix: str) -> dict:
+    return_obj = {
+        'total_bytes': 0,
+        'total_objects': 0
+    }
+    try:
+
+        # Initialize S3 client with MinIO configurations
+        s3 = boto3.client(
+            's3',
+            endpoint_url=endpoint_url,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=boto3.session.Config(signature_version='s3v4'),
+            verify=False  # Set to True if SSL is enabled
+        )
+
+        # List objects under the specified prefix
+        response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+
+        if 'Contents' in response:
+            for obj in response['Contents']:
+                return_obj['total_objects'] += 1
+                return_obj['total_bytes'] += obj.get('Size', 0)
+        else:
+            print(f"No objects found under prefix '{prefix}' in bucket '{bucket_name}'.")
+    
+    except Exception as e:
+        print(f"Unexpected error while calculating total bytes: {e}")
+
+
+    return return_obj
+
 
 def create_notification_message(
     execution_date: str, 
@@ -50,8 +93,7 @@ def create_notification_message(
         f"*Msg*: {message}"
     )
     
-    #send by slack teams or email
-    print(notification_message)
+    return notification_message
 
 def create_failure_notification(
     task_id: str, 
@@ -106,15 +148,38 @@ def event_failure_tasks(context):
     # slack_hook.send(slack_message)
     print(slack_message)
 
-def send_notification_message(msg):
-    print(msg)
+def calc_total_time(**kwargs):
     """
-    Send a notification message.
+    Calculate the total execution time of the DAG and print logging information.
+    """
+    dag_run = kwargs.get('dag_run')
+    start_date = dag_run.get_task_instance('task_init_seq_01').start_date
+    end_date = dag_run.get_task_instance('task_end_seq_01').end_date
+    total_seconds = (end_date - start_date).total_seconds()
+    total_hours, total_seconds = divmod(total_seconds, 3600)
+    total_minutes, total_seconds = divmod(total_seconds, 60)
+    total_time = f"{int(total_hours):02d}:{int(total_minutes):02d}:{int(total_seconds):02d}"
 
-    Args:
-        msg (str): The message to send.
-    """
-    print(msg)
+    print(f"Total execution time: {total_time}")
+
+    return_obj = get_qtd_and_size_minio(
+        MINIO_ENDPOINT,
+        MINIO_ACCESS_KEY,
+        MINIO_SECRET_KEY,
+        'datalake-silver',
+        'warehouse/dw/tab_brewery/data'
+    )
+    print(f"Total objects on silver zone tab_brewery: {return_obj['total_objects']}, Total bytes: {return_obj['total_bytes']}")
+
+    return_obj_gold = get_qtd_and_size_minio(
+        MINIO_ENDPOINT,
+        MINIO_ACCESS_KEY,
+        MINIO_SECRET_KEY,
+        'datalake-gold',
+        'warehouse/dw/tab_brewery_summary/data'
+    )
+    print(f"Total objects on gold zone tab_brewery_summary: {return_obj_gold['total_objects']}, Total bytes: {return_obj_gold['total_bytes']}")
+
 
 default_args = {
     'owner': 'herculanocm',
@@ -141,8 +206,7 @@ with DAG(
         catchup=False,
         tags=['datalake', 'pipeline', 'breweries'],
         user_defined_macros={
-            'get_datetime_UTC_SaoPaulo': get_datetime_UTC_SaoPaulo,
-            'create_notification_message': create_notification_message,
+            'get_datetime_UTC_SaoPaulo': get_datetime_UTC_SaoPaulo
         }
 ) as dag:
     
@@ -184,8 +248,8 @@ with DAG(
 
     task_calc_total_time = PythonOperator(
         task_id='task_calc_total_time',
-        python_callable=send_notification_message,
-        op_args={'msg': """{{ create_notification_message(execution_date, dag.dag_id, 'Finished', dag_run.get_task_instance('task_init_seq_01'), dag_run.get_task_instance('task_end_seq_01')) }}"""},
+        provide_context=True,
+        python_callable=calc_total_time,
         trigger_rule=TriggerRule.ALL_SUCCESS
     )
 
